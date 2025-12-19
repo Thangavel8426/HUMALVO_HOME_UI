@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 Control Panel</title>
+
+<style>
+body {
+  font-family: Arial;
+  background: #fff;
+  text-align: center;
+}
+
+.panel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+  margin-top: 40px;
+}
+
+.device img {
+  width: 150px;
+}
+
+.switch {
+  cursor: pointer;
+  margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>ESP32 Control Panel</h2>
+
+<div class="panel">
+  <div class="device">
+    <img id="lightImg" src="images/OFF_LIGHT_umccer.png">
+    <img id="lightSwitch" class="switch" src="images/OFF_SWITCH_z32zu0.jpg" onclick="toggle('light')">
+  </div>
+
+  <div class="device">
+    <img id="fanImg" src="images/OFF_FAN_w0gwvj.png">
+    <img id="fanSwitch" class="switch" src="images/OFF_SWITCH_z32zu0.jpg" onclick="toggle('fan')">
+  </div>
+
+  <div class="device">
+    <img id="pumpImg" src="images/OFF_PUMP_dzggdz.jpg">
+    <img id="pumpSwitch" class="switch" src="images/OFF_SWITCH_z32zu0.jpg" onclick="toggle('pump')">
+  </div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const ESP_IP = "192.168.132.207";
+const WS_URL = `ws://${ESP_IP}:81`;
+
+/* ================= IMAGES ================= */
+const img = {
+  light: {
+    on:  "images/ON_LIGHT_ydfubn.png",
+    off: "images/OFF_LIGHT_umccer.png"
+  },
+  fan: {
+    on:  "images/ON_FAN_rag7jk.gif",
+    off: "images/OFF_FAN_w0gwvj.png"
+  },
+  pump: {
+    on:  "images/ON_PUMP_dok0aa.gif",
+    off: "images/OFF_PUMP_dzggdz.jpg"
+  },
+  sw: {
+    on:  "images/ON_SWITCH_dykveo.jpg",
+    off: "images/OFF_SWITCH_z32zu0.jpg"
+  }
+};
+
+/* ================= STATE ================= */
+let state = { light:false, fan:false, pump:false };
+let ws;
+
+/* ================= APPLY STATE ================= */
+function applyState(cmd) {
+  let newState = { ...state };
+
+  cmd.split('').forEach(c => {
+    if (c === '0') newState.light = false;
+    if (c === '1') newState.light = true;
+
+    if (c === '2') newState.fan   = false;
+    if (c === '3') newState.fan   = true;
+
+    if (c === '4') newState.pump  = false;
+    if (c === '5') newState.pump  = true;
+  });
+
+  state = newState;
+  render();
+}
+
+/* ================= RENDER ================= */
+function render() {
+  ["light","fan","pump"].forEach(d => {
+    document.getElementById(d+"Img").src =
+      state[d] ? img[d].on : img[d].off;
+
+    document.getElementById(d+"Switch").src =
+      state[d] ? img.sw.on : img.sw.off;
+  });
+}
+
+/* ================= TOGGLE ================= */
+function toggle(device) {
+  if (!ws || ws.readyState !== 1) return;
+
+  const cmd = {
+    light: state.light ? "0" : "1",
+    fan:   state.fan   ? "2" : "3",
+    pump:  state.pump  ? "4" : "5"
+  }[device];
+
+  ws.send(cmd);
+}
+
+/* ================= WS ================= */
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => ws.send("S");
+  ws.onmessage = e => applyState(e.data);
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+
+connect();
+</script>
+
+</body>
+</html>
