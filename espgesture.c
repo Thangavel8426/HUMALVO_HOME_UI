@@ -5,7 +5,7 @@
 #include <WiFiClientSecure.h>
 
 /* ================= DEVICE INFO ================= */
-const char* DEVICE_NAME = "Priya_esp";
+const char* DEVICE_NAME = "GESTURE_ESP";
 
 /* ================= WIFI ================= */
 const char* ssid = "Sorry";
@@ -42,7 +42,7 @@ void updateRelays() {
   digitalWrite(LIGHT_PIN, lightState ? HIGH : LOW);
   digitalWrite(FAN_PIN,   fanState   ? HIGH : LOW);
   digitalWrite(PUMP_PIN,  pumpState  ? HIGH : LOW);
-}    
+}
 
 /* ================= STATE STRING ================= */
 String getStateString() {
@@ -74,7 +74,6 @@ void updateCloud() {
 
   https.addHeader("Content-Type", "application/json");
 
-  // ===== EXACT JSON FORMAT (as requested) =====
   String jsonBody;
   jsonBody.reserve(256);
 
@@ -88,7 +87,6 @@ void updateCloud() {
   Serial.println(jsonBody);
 
   int httpCode = https.POST(jsonBody);
-
   Serial.print("HTTP Response Code: ");
   Serial.println(httpCode);
 
@@ -101,34 +99,56 @@ void updateCloud() {
 }
 
 /* ================= WEBSOCKET EVENT ================= */
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+void wsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   if (type == WStype_TEXT) {
     for (size_t i = 0; i < length; i++) {
       applyCommand((char)payload[i]);
     }
     updateRelays();
-    
-    String state = getStateString();
-webSocket.broadcastTXT(state);
 
+    String stateStr = getStateString();  // store in variable to avoid rvalue issue
+    webSocket.broadcastTXT(stateStr);
   }
+}
+
+/* ================= GESTURE COMMAND ================= */
+void handleGestureCommand(String cmd) {
+  if (cmd.length() != 3) return;
+
+  if (cmd == "100") lightState = !lightState;
+  else if (cmd == "010") fanState = !fanState;
+  else if (cmd == "001") pumpState = !pumpState;
+  else return;
+
+  updateRelays();
+
+  String stateStr = getStateString();  // store in variable
+  webSocket.broadcastTXT(stateStr);
 }
 
 /* ================= HTTP HANDLER ================= */
 void handleHttp() {
   String uri = server.uri();
 
+  // SetCMT route
   if (uri.startsWith("/setcmd/")) {
     String cmd = uri.substring(8);
-
-    for (char c : cmd) {
-      applyCommand(c);
-    }
-
+    for (char c : cmd) applyCommand(c);
     updateRelays();
-    String state = getStateString();
-    webSocket.broadcastTXT(state);
-    server.send(200, "text/plain", state);
+    
+    String stateStr = getStateString();
+    webSocket.broadcastTXT(stateStr);
+    server.send(200, "text/plain", stateStr);
+    return;
+  }
+
+  // SetCMT Gesture route
+  if (uri.startsWith("/setfromgestures/")) {
+    String cmd = uri.substring(15);
+    handleGestureCommand(cmd);
+
+    String stateStr = getStateString();
+    server.send(200, "text/plain", stateStr);
     return;
   }
 
@@ -146,12 +166,10 @@ void setup() {
 
   WiFi.begin(ssid, password);
   Serial.print("Connecting WiFi");
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
   Serial.println("\n✅ WiFi connected");
   Serial.print("ESP32 IP: ");
   Serial.println(WiFi.localIP());
@@ -160,9 +178,9 @@ void setup() {
   server.begin();
 
   webSocket.begin();
-  webSocket.onEvent(onWebSocketEvent);
+  webSocket.onEvent(wsEvent);
 
-  // First cloud update
+  // Initial cloud update
   updateCloud();
 }
 
