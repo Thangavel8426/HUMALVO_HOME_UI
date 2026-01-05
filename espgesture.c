@@ -143,7 +143,7 @@ void handleHttp() {
   }
 
   // SetCMT Gesture route
-  if (uri.startsWith("/setfromgestures/")) {
+  if (uri.startsWith("/setcmdgesture/")) {
     String cmd = uri.substring(15);
     handleGestureCommand(cmd);
 
