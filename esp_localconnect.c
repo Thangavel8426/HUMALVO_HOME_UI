@@ -2,16 +2,16 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 /* ================= DEVICE INFO ================= */
-const char* DEVICE_NAME = "GESTURE_ESP";//CHANGE THE DEVICE NAME
+const char* DEVICE_NAME = "GESTURE_ESP";
 
 /* ================= WIFI ================= */
 const char* ssid = "Sorry";
 const char* password = "aaaaaaaa";
 
 /* ================= HOST SERVER ================= */
-//change the ip according to the localserver
 const char* HOST_SERVER = "http://192.168.2.52:7000";
 
 /* ================= RELAY PINS ================= */
@@ -50,7 +50,7 @@ String getStateString() {
          String(pumpState  ? "5" : "4");
 }
 
-/* ================= REGISTER ================= */
+/* ================= LOCAL REGISTER ================= */
 bool registerToHost() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
@@ -63,21 +63,17 @@ bool registerToHost() {
     "\",\"ip\":\"" + WiFi.localIP().toString() +
     "\",\"port\":80}";
 
-  Serial.println("\n📡 REGISTER");
-  Serial.println("URL : " + url);
-  Serial.println("BODY: " + body);
-
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
 
   int code = http.POST(body);
-  Serial.println("HTTP CODE: " + String(code));
+  Serial.println("📡 REGISTER → HTTP " + String(code));
 
   http.end();
   return (code == 200 || code == 201);
 }
 
-/* ================= HEARTBEAT ================= */
+/* ================= LOCAL ALIVE ================= */
 void sendAlivePing() {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -94,6 +90,34 @@ void sendAlivePing() {
   Serial.println("💓 ALIVE → HTTP " + String(code));
 
   http.end();
+}
+
+/* ================= CLOUD UPDATE (UNCHANGED LOGIC) ================= */
+void updateCloud() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient https;
+
+  if (!https.begin(client, "https://internetprotocal.onrender.com/config")) {
+    Serial.println("❌ Cloud begin failed");
+    return;
+  }
+
+  https.addHeader("Content-Type", "application/json");
+
+  String jsonBody =
+    String("{\"deviceName\":\"") + DEVICE_NAME + "\"," +
+    "\"wifiName\":\"" + String(ssid) + "\"," +
+    "\"wifiPassword\":\"" + String(password) + "\"," +
+    "\"deviceIp\":\"" + WiFi.localIP().toString() + "\"}";
+
+  int httpCode = https.POST(jsonBody);
+  Serial.println("☁️ CLOUD → HTTP " + String(httpCode));
+
+  https.end();
 }
 
 /* ================= WEBSOCKET ================= */
@@ -131,21 +155,18 @@ void setup() {
   pinMode(PUMP_PIN, OUTPUT);
 
   WiFi.begin(ssid, password);
-  Serial.print("📶 Connecting");
+  while (WiFi.status() != WL_CONNECTED) delay(500);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\n✅ WiFi Connected");
-  Serial.println("ESP IP: " + WiFi.localIP().toString());
+  Serial.println("✅ WiFi connected");
+  Serial.println(WiFi.localIP());
 
   server.onNotFound(handleHttp);
   server.begin();
 
   webSocket.begin();
   webSocket.onEvent(wsEvent);
+
+  updateCloud();   // initial cloud push
 }
 
 /* ================= LOOP ================= */
@@ -155,16 +176,20 @@ void loop() {
 
   static unsigned long lastRegister = 0;
   static unsigned long lastAlive = 0;
+  static unsigned long lastCloud = 0;
 
-  // 🔁 Keep registering until host accepts
   if (millis() - lastRegister > 10000) {
     registerToHost();
     lastRegister = millis();
   }
 
-  // 💓 I'm alive
   if (millis() - lastAlive > 5000) {
     sendAlivePing();
     lastAlive = millis();
+  }
+
+  if (millis() - lastCloud > 60000) {
+    updateCloud();
+    lastCloud = millis();
   }
 }
